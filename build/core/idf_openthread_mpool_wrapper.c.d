@@ -1,0 +1,31 @@
+C:\Users\IPPro-Kai\Documents\Arduino\tamagotchi\build\core\idf_openthread_mpool_wrapper.c.o: \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\hardware\esp32\3.3.11\cores\esp32\idf_openthread_mpool_wrapper.c \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/soc/esp32c6/include/soc/soc_caps.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/qio_qspi/include/sdkconfig.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/newlib/platform_include/assert.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/heap/include/esp_heap_caps.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/heap/include/multi_heap.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/esp_common/include/esp_err.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/newlib/platform_include/stdio.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/esp_common/include/esp_compiler.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/esp_common/include/esp_attr.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/log/include/esp_log.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/esp_rom/include/esp_rom_sys.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/soc/esp32c6/include/soc/reset_reasons.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/log/include/esp_log_config.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/log/include/esp_log_level.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/esp_common/include/esp_assert.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/log/include/esp_log_color.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/log/include/esp_log_buffer.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/log/include/esp_log_timestamp.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/log/include/esp_log_write.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/log/include/esp_log_format.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/log/include/esp_log_args.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/esp_common/include/esp_macros.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/esp_common/include/esp_assert.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/log/include/esp_log_attr.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/log/include/esp_private/log_attr.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/openthread/openthread/include/openthread/instance.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/openthread/openthread/include/openthread/error.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/openthread/openthread/include/openthread/platform/toolchain.h \
+ C:\Users\IPPro-Kai\AppData\Local\Arduino15\packages\esp32\tools\esp32c6-libs\3.3.11/include/openthread/openthread/include/openthread/platform/messagepool.h
