@@ -8,6 +8,7 @@
   #include "freertos/FreeRTOS.h"
   #include "freertos/task.h"
   #include "freertos/queue.h"
+  #include "freertos/semphr.h"
 
 
   Llama2Engine engine;
@@ -17,6 +18,9 @@
   };
 
   QueueHandle_t promptQueue = nullptr;
+
+  SemaphoreHandle_t buttonSemaphore = nullptr;
+  portMUX_TYPE buttonMux = portMUX_INITIALIZER_UNLOCKED;
 
   #define BABY 0
   #define KID 1
@@ -172,8 +176,18 @@
   }
 
   void ARDUINO_ISR_ATTR buttonIsr(void* arg) {
-    Button *button = static_cast<Button *>(arg);
+    Button* button = static_cast<Button*>(arg);
+
+    portENTER_CRITICAL_ISR(&buttonMux);
     button->changed = true;
+    portEXIT_CRITICAL_ISR(&buttonMux);
+
+    BaseType_t taskWoken = pdFALSE;
+    xSemaphoreGiveFromISR(buttonSemaphore, &taskWoken);
+
+    if (taskWoken == pdTRUE) {
+      portYIELD_FROM_ISR();
+    }
   }
 
   Adafruit_ST7789 tft(CS_PIN, DC_PIN, RST_PIN);
@@ -295,8 +309,12 @@ void drawAvatar(int8_t stage) {
   }
 
   void addExp(uint8_t amount) {
-    if(currentState.exp < 100) {
-      currentState.exp += amount;
+    int nextExp = (int)currentState.exp + amount;
+    currentState.exp = nextExp > 100 ? 100 : nextExp;
+
+    if (currentState.exp >= 100 && currentState.stage < ADULT) {
+      currentState.stage++;
+      currentState.exp = 0;
     }
   }
 
@@ -314,6 +332,9 @@ void drawAvatar(int8_t stage) {
     } while (digitalRead(DOWN) == LOW);
 
     Serial.begin(115200);
+
+    buttonSemaphore = xSemaphoreCreateBinary();
+    configASSERT(buttonSemaphore != nullptr);
 
     // Button attaching
     for(Button &button : buttons) {
@@ -365,15 +386,23 @@ void drawAvatar(int8_t stage) {
     configASSERT(result == pdPASS);
 
     Serial.println("AI task ready. Send a prompt using Newline.");
+
+    BaseType_t statsResult = xTaskCreatePinnedToCore(
+      statsTask,
+      "Stats",
+      8192,
+      nullptr,
+      2,
+      nullptr,
+      1
+    );
+
+    configASSERT(statsResult == pdPASS);
+
+    Serial.println("Stats task ready.");
   }
 
   void tick() {
-      // check evolve
-      if(currentState.exp >= 100 && currentState.stage < ADULT) {
-        currentState.stage++;
-        currentState.exp = 0;
-      } 
-
       currentState.happiness -= DECAY_RATE;
       if(currentState.happiness < 0) currentState.happiness = 0;
       currentState.health -= DECAY_RATE;
@@ -384,42 +413,63 @@ void drawAvatar(int8_t stage) {
       prefs.putBytes("state", &currentState, sizeof(currentState));
   }
 
+  void statsTask(void* arg) {
+    unsigned long lastDecay = millis();
+
+    for (;;) {
+      // Wake on button activity or every 10 ms.
+      // The timeout also lets debounce and decay continue.
+      xSemaphoreTake(buttonSemaphore, pdMS_TO_TICKS(10));
+
+      bool redraw = false;
+
+      for (Button& button : buttons) {
+        portENTER_CRITICAL(&buttonMux);
+        bool changed = button.changed;
+        button.changed = false;
+        portEXIT_CRITICAL(&buttonMux);
+
+        bool reading = digitalRead(button.pin);
+        unsigned long now = millis();
+
+        if (changed || reading != button.lastReading) {
+          button.lastReading = reading;
+          button.lastChanged = now;
+        }
+
+        if (reading != button.stableReading &&
+            now - button.lastChanged >= DEBOUNCE_MS) {
+          button.stableReading = reading;
+
+          if (reading == LOW) {
+            handleAction(button.pin);
+            redraw = true;
+          }
+        }
+      }
+
+      unsigned long now = millis();
+
+      if (now - lastDecay >= TICK_MS) {
+        lastDecay = now;
+        tick();
+        redraw = true;
+      }
+
+      if (redraw) {
+        drawScreen();
+      }
+    }
+  }
+
 
   static unsigned long lastBlink = 0;
   static bool ledOn = false;
   void loop() {
     unsigned long now = millis();
 
-    if(now - lastTick >= TICK_MS) {
-      tick();
-      lastTick = now;
-      drawScreen();
-    }
-
-    for(int i = 0; i < 5; i++) {
-      Button &button = buttons[i];
-      bool changed = button.changed;
-      button.changed = false;
-
-      bool reading = digitalRead(button.pin);
-      
-      if(changed || reading != button.lastReading) {
-        button.lastReading = reading;
-        button.lastChanged = now;
-      }
-
-      if(reading != button.stableReading && now - button.lastChanged >= DEBOUNCE_MS) {
-        button.stableReading = reading;
-        if(reading == LOW) {
-          handleAction(button.pin);
-          drawScreen();
-        }
-      }
-    }
-
-
-    if (millis() - lastBlink >= 500) {
-      lastBlink = millis();
+    if (now - lastBlink >= 500) {
+      lastBlink = now;
       ledOn = !ledOn;
 
       rgbLedWrite(BOARD_LED_PIN, 0, ledOn ? 20 : 0, 0);
