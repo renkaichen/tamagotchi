@@ -3,6 +3,20 @@
   #include <Adafruit_GFX.h>
   #include <Adafruit_ST7789.h>
   #include <SPI.h>
+  #include <LittleFS.h>
+  #include "llama2_runner.hpp"
+  #include "freertos/FreeRTOS.h"
+  #include "freertos/task.h"
+  #include "freertos/queue.h"
+
+
+  Llama2Engine engine;
+
+  struct PromptMessage {
+    char text[192];
+  };
+
+  QueueHandle_t promptQueue = nullptr;
 
   #define BABY 0
   #define KID 1
@@ -101,6 +115,61 @@
     {DOWN},
     {RIGHT}
   };
+
+  void aiTask(void* arg) {
+    PromptMessage message;
+
+    for (;;) {
+      // Sleep until a prompt arrives.
+      if (xQueueReceive(promptQueue, &message, portMAX_DELAY) == pdTRUE) {
+        Serial.print("\n[completion]: ");
+        Serial.println(message.text);
+
+        engine.generate(
+          message.text,
+          [](const char* text) {
+            Serial.print(text);
+            vTaskDelay(1);
+          },
+          100,
+          0.8f
+        );
+
+        Serial.println("\n[AI finished]");
+      }
+    }
+  }
+
+  void readPrompt() {
+    static PromptMessage input{};
+    static size_t length = 0;
+    static bool tooLong = false;
+
+    while (Serial.available()) {
+      char c = Serial.read();
+
+      if (c == '\r') continue;
+
+      if (c == '\n') {
+        if (tooLong) {
+          Serial.println("Prompt too long; discarded.");
+        } else if (length > 0 && promptQueue != nullptr) {
+          input.text[length] = '\0';
+
+          if (xQueueSend(promptQueue, &input, 0) != pdTRUE) {
+            Serial.println("Queue full; try again later.");
+          }
+        }
+
+        length = 0;
+        tooLong = false;
+      } else if (length < sizeof(input.text) - 1) {
+        input.text[length++] = c;
+      } else {
+        tooLong = true;
+      }
+    }
+  }
 
   void ARDUINO_ISR_ATTR buttonIsr(void* arg) {
     Button *button = static_cast<Button *>(arg);
@@ -269,6 +338,33 @@ void drawAvatar(int8_t stage) {
 
     lastTick = millis();
     drawScreen();
+
+    if (!LittleFS.begin(false)) {
+      Serial.println("FAIL: LittleFS mount");
+      return;
+    }
+
+    if (!engine.init(LittleFS, "/stories2M_q8.bin", "/tok512.bin")) {
+      Serial.println("FAIL: AI initialization");
+      return;
+    }
+
+    promptQueue = xQueueCreate(2, sizeof(PromptMessage));
+    configASSERT(promptQueue != nullptr);
+
+    BaseType_t result = xTaskCreatePinnedToCore(
+      aiTask,
+      "AI",
+      16384,
+      nullptr,
+      1,
+      nullptr,
+      1
+    );
+
+    configASSERT(result == pdPASS);
+
+    Serial.println("AI task ready. Send a prompt using Newline.");
   }
 
   void tick() {
@@ -329,5 +425,7 @@ void drawAvatar(int8_t stage) {
       rgbLedWrite(BOARD_LED_PIN, 0, ledOn ? 20 : 0, 0);
     }
 
+    readPrompt();
+    delay(1);
   }
 
