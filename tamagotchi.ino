@@ -112,6 +112,8 @@
     int8_t health;
   };
 
+  QueueHandle_t displayQueue = nullptr;
+
   Button buttons[] = {
     {UP},
     {CENTER},
@@ -196,9 +198,7 @@
 
   TamagotchiState currentState{BABY, 0, START_HAPPINESS, START_HUNGER, START_HEALTH};
 
-  unsigned long lastTick = 0;
-
-  void drawScreen() {
+  void drawScreen(const TamagotchiState& state) {
     tft.fillScreen(ST77XX_BLACK);
     tft.setTextColor(ST77XX_WHITE);
     tft.setTextSize(2);
@@ -207,25 +207,25 @@
     tft.println(" says hi!");
 
     tft.print("Stage: ");
-    switch (currentState.stage) {
+    switch (state.stage) {
       case BABY:  tft.println("BABY"); break;
       case KID:   tft.println("KID"); break;
       case ADULT: tft.println("ADULT"); break;
     }
 
     tft.print("EXP: ");
-    tft.println((int)currentState.exp);
+    tft.println((int)state.exp);
 
     tft.print("Happy: ");
-    tft.println((int)currentState.happiness);
+    tft.println((int)state.happiness);
 
     tft.print("Hunger: ");
-    tft.println((int)currentState.hunger);
+    tft.println((int)state.hunger);
 
     tft.print("Health: ");
-    tft.println((int)currentState.health);
+    tft.println((int)state.health);
 
-    drawAvatar(currentState.stage);
+    drawAvatar(state.stage);
   }
 
   uint16_t brown = tft.color565(160, 130, 110);
@@ -261,6 +261,16 @@ void drawAvatar(int8_t stage) {
       break;
   }
 }
+
+  void spiTask(void* arg) {
+    TamagotchiState snapshot;
+
+    for (;;) {
+      if (xQueueReceive(displayQueue, &snapshot, portMAX_DELAY) == pdTRUE) {
+        drawScreen(snapshot);
+      }
+    }
+  }
 
   void resetTamagotchi() {
     currentState = TamagotchiState{BABY, 0, START_HAPPINESS, START_HUNGER, START_HEALTH};
@@ -354,11 +364,13 @@ void drawAvatar(int8_t stage) {
       prefs.getBytes("state", &currentState, sizeof(currentState)); // if exists, get stored state
     }
 
+    displayQueue = xQueueCreate(1, sizeof(TamagotchiState));
+    configASSERT(displayQueue != nullptr);
+
     tft.init(240, 240);
     tft.setRotation(0);
 
-    lastTick = millis();
-    drawScreen();
+    xQueueOverwrite(displayQueue, &currentState);
 
     if (!LittleFS.begin(false)) {
       Serial.println("FAIL: LittleFS mount");
@@ -386,6 +398,18 @@ void drawAvatar(int8_t stage) {
     configASSERT(result == pdPASS);
 
     Serial.println("AI task ready. Send a prompt using Newline.");
+
+    BaseType_t spiResult = xTaskCreatePinnedToCore(
+      spiTask,
+      "SPI",
+      4096,
+      nullptr,
+      1,
+      nullptr,
+      0
+    );
+
+    configASSERT(spiResult == pdPASS);
 
     BaseType_t statsResult = xTaskCreatePinnedToCore(
       statsTask,
@@ -457,7 +481,7 @@ void drawAvatar(int8_t stage) {
       }
 
       if (redraw) {
-        drawScreen();
+        xQueueOverwrite(displayQueue, &currentState);
       }
     }
   }
