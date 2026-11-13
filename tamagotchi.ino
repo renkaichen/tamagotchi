@@ -9,6 +9,11 @@
   #include "freertos/task.h"
   #include "freertos/queue.h"
   #include "freertos/semphr.h"
+  #include <atomic>
+  #include <cstring>
+  #include "esp_adc/adc_continuous.h"
+  #include "esp_err.h"
+  #include "soc/soc_caps.h"
 
 
   Llama2Engine engine;
@@ -18,6 +23,8 @@
   };
 
   QueueHandle_t promptQueue = nullptr;
+
+  QueueHandle_t beepQueue = nullptr;
 
   SemaphoreHandle_t buttonSemaphore = nullptr;
   portMUX_TYPE buttonMux = portMUX_INITIALIZER_UNLOCKED;
@@ -176,6 +183,155 @@
       }
     }
   }
+
+    constexpr uint8_t POT_ADC_PIN = 1;
+    constexpr uint8_t SPEAKER_PIN = 2;
+
+    // Enable only after confirming the audio wiring.
+    constexpr bool AUDIO_ENABLED = true;
+
+    std::atomic<int> potRaw{0};
+    std::atomic<int> beepFrequency{500};  
+
+    constexpr uint32_t ADC_FRAME_BYTES = 256;
+    constexpr uint32_t ADC_SAMPLE_HZ = 20000;
+    static adc_continuous_handle_t adcHandle = nullptr;
+    static adc_channel_t potChannel;
+
+    // Driver callback executes in interrupt context: only wake the task.
+    static bool IRAM_ATTR adcDone(adc_continuous_handle_t handle,
+                                const adc_continuous_evt_data_t* event,
+                                void* userData) {
+        BaseType_t higherPriorityTaskWoken = pdFALSE;
+        vTaskNotifyGiveFromISR(static_cast<TaskHandle_t>(userData),
+                              &higherPriorityTaskWoken);
+        return higherPriorityTaskWoken == pdTRUE;
+    }
+
+    static void configureAdc() {
+        adc_unit_t unit;
+        ESP_ERROR_CHECK(adc_continuous_io_to_channel(POT_ADC_PIN,
+                                                  &unit, &potChannel));
+        if (unit != ADC_UNIT_1) {
+            Serial.println("The potentiometer must use ADC1.");
+            abort();
+        }
+
+        adc_continuous_handle_cfg_t handleConfig = {};
+        handleConfig.max_store_buf_size = 8192;
+        handleConfig.conv_frame_size = ADC_FRAME_BYTES;
+        ESP_ERROR_CHECK(adc_continuous_new_handle(&handleConfig, &adcHandle));
+
+        adc_digi_pattern_config_t pattern = {};
+        // DB_11 is the older, widely available name for this attenuation setting.
+        pattern.atten = ADC_ATTEN_DB_11;
+        pattern.channel = potChannel;
+        pattern.unit = ADC_UNIT_1;
+        pattern.bit_width = SOC_ADC_DIGI_MAX_BITWIDTH;
+
+        adc_continuous_config_t config = {};
+        config.sample_freq_hz = ADC_SAMPLE_HZ;
+        config.conv_mode = ADC_CONV_SINGLE_UNIT_1;
+        config.format = ADC_DIGI_OUTPUT_FORMAT_TYPE2;
+        config.pattern_num = 1;
+        config.adc_pattern = &pattern;
+        ESP_ERROR_CHECK(adc_continuous_config(adcHandle, &config));
+    }
+
+    void adcTask(void* arg) {
+      if (AUDIO_ENABLED) {
+        bool attached = ledcAttach(SPEAKER_PIN, 1000, 8);
+        configASSERT(attached);
+        ledcWriteTone(SPEAKER_PIN, 0);
+      }
+
+      adc_continuous_evt_cbs_t callbacks = {};
+      callbacks.on_conv_done = adcDone;
+
+      ESP_ERROR_CHECK(adc_continuous_register_event_callbacks(
+        adcHandle, &callbacks, xTaskGetCurrentTaskHandle()
+      ));
+
+      ESP_ERROR_CHECK(adc_continuous_start(adcHandle));
+
+      uint8_t buffer[ADC_FRAME_BYTES];
+
+      unsigned long beepStarted = 0;
+      bool playing = false;
+      int frequency = 500;
+      int appliedFrequency = 0;
+
+      for (;;) {
+        // DMA wakes us; timeout also lets us service beep timing.
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
+
+        // Drain a bounded number of frames per iteration.
+        for (int frame = 0; frame < 8; frame++) {
+          uint32_t bytesRead = 0;
+
+          esp_err_t err = adc_continuous_read(
+            adcHandle, buffer, sizeof(buffer), &bytesRead, 0
+          );
+
+          if (err == ESP_ERR_TIMEOUT) {
+            break;
+          }
+
+          ESP_ERROR_CHECK(err);
+
+          uint32_t sum = 0;
+          uint32_t count = 0;
+
+          for (uint32_t i = 0;
+              i + SOC_ADC_DIGI_RESULT_BYTES <= bytesRead;
+              i += SOC_ADC_DIGI_RESULT_BYTES) {
+            adc_digi_output_data_t sample = {};
+            memcpy(&sample, buffer + i, sizeof(sample));
+
+            if (sample.type2.unit == ADC_UNIT_1 &&
+                sample.type2.channel == potChannel) {
+              sum += sample.type2.data;
+              count++;
+            }
+          }
+
+          if (count > 0) {
+            int average = sum / count;
+
+            frequency = map(
+              constrain(average, 0, 4095),
+              0, 4095,
+              500, 2500
+            );
+
+            potRaw.store(average, std::memory_order_relaxed);
+            beepFrequency.store(frequency, std::memory_order_relaxed);
+          }
+        }
+
+        unsigned long now = millis();
+
+        uint8_t request;
+
+        if (xQueueReceive(beepQueue, &request, 0) == pdTRUE) {
+          beepStarted = now;
+          playing = true;
+        }
+
+        if (playing && now - beepStarted >= 150) {
+          playing = false;
+        }
+
+        if (AUDIO_ENABLED) {
+          int requestedFrequency = playing ? frequency : 0;
+
+          if (requestedFrequency != appliedFrequency) {
+            ledcWriteTone(SPEAKER_PIN, requestedFrequency);
+            appliedFrequency = requestedFrequency;
+          }
+        }
+      }
+    }
 
   void ARDUINO_ISR_ATTR buttonIsr(void* arg) {
     Button* button = static_cast<Button*>(arg);
@@ -411,6 +567,9 @@ void drawAvatar(int8_t stage) {
 
     configASSERT(spiResult == pdPASS);
 
+    beepQueue = xQueueCreate(1, sizeof(uint8_t));
+    configASSERT(beepQueue != nullptr);
+    
     BaseType_t statsResult = xTaskCreatePinnedToCore(
       statsTask,
       "Stats",
@@ -424,17 +583,46 @@ void drawAvatar(int8_t stage) {
     configASSERT(statsResult == pdPASS);
 
     Serial.println("Stats task ready.");
+
+    configureAdc();
+
+    BaseType_t adcResult = xTaskCreatePinnedToCore(
+      adcTask,
+      "ADC Audio",
+      4096,
+      nullptr,
+      1,
+      nullptr,
+      0
+    );
+
+    configASSERT(adcResult == pdPASS);
   }
 
   void tick() {
-      currentState.happiness -= DECAY_RATE;
-      if(currentState.happiness < 0) currentState.happiness = 0;
-      currentState.health -= DECAY_RATE;
-      if(currentState.health < 0) currentState.health = 0;
-      currentState.hunger += DECAY_RATE;
-      if(currentState.hunger > 100) currentState.hunger = 100;
+    bool changed = false;
 
-      prefs.putBytes("state", &currentState, sizeof(currentState));
+    if (currentState.happiness > 0) {
+      currentState.happiness--;
+      changed = true;
+    }
+
+    if (currentState.health > 0) {
+      currentState.health--;
+      changed = true;
+    }
+
+    if (currentState.hunger < 100) {
+      currentState.hunger++;
+      changed = true;
+    }
+
+    prefs.putBytes("state", &currentState, sizeof(currentState));
+
+    if (changed) {
+      uint8_t request = 1;
+      xQueueOverwrite(beepQueue, &request);
+    }
   }
 
   void statsTask(void* arg) {
